@@ -13,13 +13,13 @@
   if(bridgePromise)return bridgePromise;
   bridgePromise=new Promise((resolve,reject)=>{
    const channel=crypto.randomUUID();
-   const timeout=setTimeout(()=>{window.removeEventListener('message',ready);frame?.remove();bridgePromise=null;reject(Error('La conexión necesita activarse una vez por la administradora. No tienes que iniciar sesión en Google.'));},30000);
+   const timeout=setTimeout(()=>{window.removeEventListener('message',ready);frame?.remove();bridgePromise=null;reject(Error('No se pudo abrir la conexión con Google. Pulsa «Reintentar conexión». Si continúa, abre el enlace actualizado en una ventana de incógnito de Chrome.'));},30000);
    function ready(e){
     if(!/^https:\/\/[a-z0-9-]+(?:-script)?\.googleusercontent\.com$/.test(e.origin)||e.data?.type!=='ready'||e.data.channel!==channel)return;
     clearTimeout(timeout);window.removeEventListener('message',ready);bridge={source:e.source,origin:e.origin,channel};resolve(bridge);
    }
    window.addEventListener('message',ready);
-   frame=document.createElement('iframe');frame.hidden=true;frame.title='Conexión segura con la hoja';frame.src=ENDPOINT+'?channel='+encodeURIComponent(channel);document.body.appendChild(frame);
+   frame=document.createElement('iframe');if('credentialless' in frame)frame.credentialless=true;frame.hidden=true;frame.title='Conexión segura con la hoja';frame.src=ENDPOINT+'?channel='+encodeURIComponent(channel);document.body.appendChild(frame);
   });return bridgePromise;
  }
  window.addEventListener('message',e=>{
@@ -85,7 +85,7 @@
      if(!result||!['products','sellers','accounts','sales'].every(key=>Array.isArray(result[key])))throw Error('Google devolvió una respuesta incompleta. Revisa que la implementación use la última versión del script.');
      data=result;catalog();render();connected=true;$('accessDialog').close();
      $('connectionBanner').className='banner';$('connectionBanner').textContent='Conectado a Google Sheets · '+data.email;
-     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 2.1.`;
+     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 2.2.`;
    }
    catch(e){connected=false;const message=e.message;$('accessError').textContent=message;$('connectionBanner').className='banner error';$('connectionBanner').textContent=message;$('connectionDetails').textContent=message;}
    finally{
@@ -129,7 +129,7 @@
  $('salesBody').onchange=async e=>{const id=e.target.dataset.select;if(id){e.target.checked?selection.add(id):selection.delete(id);render();return;}const saleId=e.target.dataset.status;if(saleId){const row=data.sales.find(r=>r.id===saleId);e.target.disabled=true;try{await rpc('updatePayment',{id:saleId,status:e.target.value,version:row.version});await refresh();toast('Estado de pago actualizado.');}catch(err){toast(err.message);render();}}};
  $('exportCsv').onclick=exportCSV;$('settle').onclick=openSettlement;$('settleForm').onsubmit=saveSettlement;
  $('addProduct').onclick=()=>openEntity('products');$('addSeller').onclick=()=>openEntity('sellers');$('addAccount').onclick=()=>openEntity('accounts');$('entityForm').onsubmit=saveEntity;$('productGrid').onclick=e=>{const id=e.target.dataset.editProduct;if(id)openEntity('products',id);};
- $('accessForm').onsubmit=async e=>{e.preventDefault();const button=$('enterApp');button.disabled=true;$('accessError').textContent='Conectando…';access={actor:$('accessName').value.trim(),key:$('accessKey').value.trim()};try{await refresh();}finally{button.disabled=false;}};
+ $('accessForm').onsubmit=async e=>{e.preventDefault();const button=$('enterApp');button.disabled=true;$('accessError').textContent='Conectando…';access={actor:$('accessName').value.trim(),key:$('accessKey').value.trim()};try{await refresh();}finally{button.disabled=false;button.textContent=connected?'Entrar':'Reintentar conexión';}};
  $('accessDialog').addEventListener('cancel',e=>e.preventDefault());
  $('signOut').onclick=()=>location.reload();
  $('connectionBanner').textContent='Ingresa para consultar y registrar tus ventas.';

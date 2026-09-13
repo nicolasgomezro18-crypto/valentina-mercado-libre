@@ -14,7 +14,7 @@ Los precios son netos, en pesos chilenos. Total = cantidad × valor unitario. No
 
 ## Conexión
 
-La interfaz carga un puente de Apps Script mediante un iframe y mensajes con origen y canal comprobados. El servidor valida el código del equipo antes de leer o escribir. La hoja permanece privada. No se incluyen ventas ni credenciales en este repositorio.
+La interfaz carga un puente de Apps Script mediante un iframe y mensajes con origen y canal comprobados. En Chrome compatible utiliza `credentialless` para aislar la conexión de las sesiones de Google del navegador. El código del equipo se sigue validando en el servidor. El servidor valida el código del equipo antes de leer o escribir. La hoja permanece privada. No se incluyen ventas ni credenciales en este repositorio.
 
 La implementación de Apps Script debe ejecutarse como su propietario y permitir acceso anónimo; la autorización de datos se realiza en `apiRequest`. La administradora tiene un archivo configurado privado para pegar en Code.gs. Después debe actualizar la implementación existente seleccionando una nueva versión. El código genérico de este repositorio usa propiedades `SPREADSHEET_ID`, `ALLOWED_EMAILS` (administración) y `TEAM_KEY_SHA256` (hash SHA-256 de un código aleatorio de al menos 24 bytes). `APP_ORIGIN_` y `ENDPOINT` fijan el sitio y la implementación.
 

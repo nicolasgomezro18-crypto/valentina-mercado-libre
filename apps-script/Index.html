@@ -3,7 +3,7 @@
 
 #accessDialog{max-width:490px}#accessForm{display:grid;gap:16px}#accessError{color:#9c3520;white-space:pre-line}.dash-toolbar{display:flex;flex-wrap:wrap;justify-content:space-between;gap:18px}.dash-toolbar p{font-size:.875rem;margin-top:5px}.dash-filters{display:grid;grid-template-columns:1fr 1fr 150px 150px auto;gap:14px;align-items:end;flex-basis:100%}.chart-caption{font-size:.82rem;margin:6px 0 20px}.bar-chart{display:grid;gap:18px}.chart-label{display:flex;justify-content:space-between;gap:15px;font-size:.875rem;margin-bottom:7px}.chart-label b{white-space:nowrap;font-variant-numeric:tabular-nums}.bar-track{height:9px;background:#eff3f8;border-radius:6px;overflow:hidden}.bar-track>div{height:100%;background:#3976bb;border-radius:6px}#dashProducts .bar-track>div{background:#233d59}#dashSellers .bar-track>div{background:#c49a05}.chart-row small{font-size:.75rem;color:var(--muted)}.chart-subtitle{margin:28px 0 16px}.chart-empty{padding:24px 0;font-size:.875rem}#dashReview td:last-child{min-width:250px;font-size:.8rem}#dashReview td{vertical-align:top}main{margin:0 auto}@media(max-width:1250px){.dash-filters{grid-template-columns:1fr 1fr 1fr}}@media(max-width:800px){.dash-filters{grid-template-columns:1fr 1fr}.chart-label{font-size:.8rem}}
 </style></head>
-<body><dialog id="accessDialog"><form id="accessForm"><h2>Valentina · Mercado Libre</h2><p>Ingresa para consultar ventas y hacer rendiciones.</p><label>Tu nombre<input id="accessName" autocomplete="name" maxlength="100" required></label><label>Código de acceso<input id="accessKey" type="password" autocomplete="off" required></label><p class="muted">Utiliza el código que te compartió la administradora. No necesitas una cuenta de Google.</p><p id="accessError" role="status"></p><button id="enterApp" class="primary">Entrar</button></form></dialog><div class="shell"><aside><a class="brand" href="#ventas"><span class="brand-icon">▥</span> Mis ventas</a><p class="workspace">MERCADO LIBRE · CHILE</p><nav aria-label="Secciones"><button class="nav active" data-view="dashboard">Dashboard</button><button class="nav" data-view="ventas">Ventas y rendición</button><button class="nav" data-view="catalogo">Productos y personas</button><button class="nav" data-view="conexion">Conexión</button></nav><div class="aside-foot"><b>CLP · Peso chileno</b><p>Valores netos de comisiones y envíos.</p></div></aside><main>
+<body><dialog id="accessDialog"><form id="accessForm"><h2>Valentina · Mercado Libre</h2><p>Ingresa para consultar ventas y hacer rendiciones.</p><label>Tu nombre<input id="accessName" autocomplete="name" maxlength="100" required></label><label>Código de acceso<input id="accessKey" type="password" autocomplete="off" required></label><p class="muted">Utiliza el código que te compartió la administradora. No necesitas una cuenta de Google.</p><p id="accessError" role="status"></p><button id="enterApp" class="primary">Entrar</button><small class="muted">Acceso actualizado · v2.2</small></form></dialog><div class="shell"><aside><a class="brand" href="#ventas"><span class="brand-icon">▥</span> Mis ventas</a><p class="workspace">MERCADO LIBRE · CHILE</p><nav aria-label="Secciones"><button class="nav active" data-view="dashboard">Dashboard</button><button class="nav" data-view="ventas">Ventas y rendición</button><button class="nav" data-view="catalogo">Productos y personas</button><button class="nav" data-view="conexion">Conexión</button></nav><div class="aside-foot"><b>CLP · Peso chileno</b><p>Valores netos de comisiones y envíos.</p></div></aside><main>
 <header><div><p class="eyebrow">CONTROL DE VENTAS</p><h1 id="pageTitle">Dashboard</h1></div><button class="primary" id="newSale">＋ Registrar venta</button></header>
 <div id="connectionBanner" class="banner" role="status">Comprobando conexión…</div>
 <section id="dashboard" class="view">
@@ -120,13 +120,13 @@ if(typeof module!=='undefined')module.exports=SalesCore;
   if(bridgePromise)return bridgePromise;
   bridgePromise=new Promise((resolve,reject)=>{
    const channel=crypto.randomUUID();
-   const timeout=setTimeout(()=>{window.removeEventListener('message',ready);frame?.remove();bridgePromise=null;reject(Error('La conexión necesita activarse una vez por la administradora. No tienes que iniciar sesión en Google.'));},30000);
+   const timeout=setTimeout(()=>{window.removeEventListener('message',ready);frame?.remove();bridgePromise=null;reject(Error('No se pudo abrir la conexión con Google. Pulsa «Reintentar conexión». Si continúa, abre el enlace actualizado en una ventana de incógnito de Chrome.'));},30000);
    function ready(e){
     if(!/^https:\/\/[a-z0-9-]+(?:-script)?\.googleusercontent\.com$/.test(e.origin)||e.data?.type!=='ready'||e.data.channel!==channel)return;
     clearTimeout(timeout);window.removeEventListener('message',ready);bridge={source:e.source,origin:e.origin,channel};resolve(bridge);
    }
    window.addEventListener('message',ready);
-   frame=document.createElement('iframe');frame.hidden=true;frame.title='Conexión segura con la hoja';frame.src=ENDPOINT+'?channel='+encodeURIComponent(channel);document.body.appendChild(frame);
+   frame=document.createElement('iframe');if('credentialless' in frame)frame.credentialless=true;frame.hidden=true;frame.title='Conexión segura con la hoja';frame.src=ENDPOINT+'?channel='+encodeURIComponent(channel);document.body.appendChild(frame);
   });return bridgePromise;
  }
  window.addEventListener('message',e=>{
@@ -192,7 +192,7 @@ if(typeof module!=='undefined')module.exports=SalesCore;
      if(!result||!['products','sellers','accounts','sales'].every(key=>Array.isArray(result[key])))throw Error('Google devolvió una respuesta incompleta. Revisa que la implementación use la última versión del script.');
      data=result;catalog();render();connected=true;$('accessDialog').close();
      $('connectionBanner').className='banner';$('connectionBanner').textContent='Conectado a Google Sheets · '+data.email;
-     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 2.1.`;
+     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 2.2.`;
    }
    catch(e){connected=false;const message=e.message;$('accessError').textContent=message;$('connectionBanner').className='banner error';$('connectionBanner').textContent=message;$('connectionDetails').textContent=message;}
    finally{
@@ -236,7 +236,7 @@ if(typeof module!=='undefined')module.exports=SalesCore;
  $('salesBody').onchange=async e=>{const id=e.target.dataset.select;if(id){e.target.checked?selection.add(id):selection.delete(id);render();return;}const saleId=e.target.dataset.status;if(saleId){const row=data.sales.find(r=>r.id===saleId);e.target.disabled=true;try{await rpc('updatePayment',{id:saleId,status:e.target.value,version:row.version});await refresh();toast('Estado de pago actualizado.');}catch(err){toast(err.message);render();}}};
  $('exportCsv').onclick=exportCSV;$('settle').onclick=openSettlement;$('settleForm').onsubmit=saveSettlement;
  $('addProduct').onclick=()=>openEntity('products');$('addSeller').onclick=()=>openEntity('sellers');$('addAccount').onclick=()=>openEntity('accounts');$('entityForm').onsubmit=saveEntity;$('productGrid').onclick=e=>{const id=e.target.dataset.editProduct;if(id)openEntity('products',id);};
- $('accessForm').onsubmit=async e=>{e.preventDefault();const button=$('enterApp');button.disabled=true;$('accessError').textContent='Conectando…';access={actor:$('accessName').value.trim(),key:$('accessKey').value.trim()};try{await refresh();}finally{button.disabled=false;}};
+ $('accessForm').onsubmit=async e=>{e.preventDefault();const button=$('enterApp');button.disabled=true;$('accessError').textContent='Conectando…';access={actor:$('accessName').value.trim(),key:$('accessKey').value.trim()};try{await refresh();}finally{button.disabled=false;button.textContent=connected?'Entrar':'Reintentar conexión';}};
  $('accessDialog').addEventListener('cancel',e=>e.preventDefault());
  $('signOut').onclick=()=>location.reload();
  $('connectionBanner').textContent='Ingresa para consultar y registrar tus ventas.';
