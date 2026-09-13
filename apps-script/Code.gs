@@ -7,6 +7,7 @@ var SCHEMA_ = {
 };
 // El sitio público contiene únicamente la interfaz. Cada operación requiere el código del equipo.
 var REQUEST_ACTOR_ = null;
+var REQUEST_ROLE_ = null;
 var APP_ORIGIN_ = 'https://nicolasgomezro18-crypto.github.io';
 function doGet(e){
  var channel=String(e && e.parameter && e.parameter.channel || '');
@@ -25,17 +26,37 @@ function bridgeClient_(origin,channel){
 }
 function apiRequest(request){
  if(!request||JSON.stringify(request).length>250000)throw new Error('Solicitud inválida.');
- var expected=PropertiesService.getScriptProperties().getProperty('TEAM_KEY_SHA256')||'';
+ var props=PropertiesService.getScriptProperties();
  var key=typeof request.key==='string'?request.key:'';
- if(!/^[a-f0-9]{64}$/.test(expected)||key.length<20||key.length>200)throw new Error('Código de acceso incorrecto.');
+ if(key.length<20||key.length>200)throw new Error('Código de acceso incorrecto.');
  var digest=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,key,Utilities.Charset.UTF_8).map(function(b){return ('0'+((b+256)%256).toString(16)).slice(-2);}).join('');
- var diff=0;for(var i=0;i<64;i++)diff|=digest.charCodeAt(i)^expected.charCodeAt(i);
- if(diff)throw new Error('Código de acceso incorrecto.');
- var methods={getData:getData,saveOrder:saveOrder,saveEntity:saveEntity,updatePayment:updatePayment,settleSales:settleSales};
+ var adminHash=props.getProperty('ADMIN_KEY_SHA256')||'';
+ var teamHash=props.getProperty('TEAM_KEY_SHA256')||'';
+ var role=hashMatches_(digest,adminHash)?'admin':hashMatches_(digest,teamHash)?'team':'';
+ if(!role)throw new Error('Código de acceso incorrecto.');
+ if(request.profile&&request.profile!==role)throw new Error('Ese código no corresponde al perfil seleccionado.');
+ var methods={getData:getData,saveOrder:saveOrder,saveEntity:saveEntity,updatePayment:updatePayment,settleSales:settleSales,deleteSale:deleteSale};
  if(!Object.prototype.hasOwnProperty.call(methods,request.method))throw new Error('Operación no permitida.');
- REQUEST_ACTOR_=text_(request.actor,'tu nombre',100);
- try{return methods[request.method](request.input);}finally{REQUEST_ACTOR_=null;}
+ REQUEST_ACTOR_=text_(request.actor,'tu nombre',100);REQUEST_ROLE_=role;
+ try{return methods[request.method](request.input);}finally{REQUEST_ACTOR_=null;REQUEST_ROLE_=null;}
 }
+function hashMatches_(digest,expected){if(!/^[a-f0-9]{64}$/.test(expected))return false;var diff=0;for(var i=0;i<64;i++)diff|=digest.charCodeAt(i)^expected.charCodeAt(i);return diff===0;}
+function requireAdmin_(){if(REQUEST_ROLE_!=='admin'||!REQUEST_ACTOR_)throw new Error('Solo el administrador puede eliminar ventas.');return REQUEST_ACTOR_;}
+function deleteSale(input){var actor=requireAdmin_();return lock_(function(){
+ if(!input)throw new Error('Selecciona una venta.');
+ var db=db_(),sales=read_(db,'sales'),row=find_(sales,text_(input.id,'venta',100),'venta');
+ if(row.status==='Eliminado')return {ok:true,alreadyDeleted:true};
+ if(row.version!==input.version)throw new Error('La venta cambió. Actualiza antes de eliminar.');
+ var reason=text_(input.reason,'motivo de eliminación',300),now=new Date().toISOString();
+ row.notes=(row.notes||'')+'\nEliminación: '+JSON.stringify({por:actor,fecha:now,motivo:reason,estadoAnterior:row.status});
+ row.status='Eliminado';row.updatedAt=now;row.updatedBy=actor;row.version++;
+ // Un solo cambio de fila conserva el registro original y evita escrituras parciales de archivo y borrado.
+ var sheet=db.getSheetByName(SCHEMA_.sales.sheet);
+ var at=sheet.getRange(2,1,sheet.getLastRow()-1,1).getValues().findIndex(function(r){return r[0]===row.id;});
+ if(at<0)throw new Error('La venta ya no está disponible. Actualiza los datos.');
+ sheet.getRange(at+2,1,1,SCHEMA_.sales.fields.length).setValues(rows_('sales',[row]));
+ SpreadsheetApp.flush();return {ok:true};
+ });}
 function authorize_(){
  if(REQUEST_ACTOR_)return REQUEST_ACTOR_;
  var email=Session.getActiveUser().getEmail().toLowerCase();
@@ -54,7 +75,7 @@ function safe_(value){if(typeof value==='string'&&/^[\s]*[=+@-]/.test(value))ret
 function rows_(key,records){return records.map(function(r){return SCHEMA_[key].fields.map(function(f){return safe_(r[f]===undefined?'':r[f]);});});}
 function append_(db,key,records){var def=SCHEMA_[key],s=db.getSheetByName(def.sheet);check_(s,def);var at=s.getLastRow()+1;var needed=at+records.length-1;if(needed>s.getMaxRows())s.insertRowsAfter(s.getMaxRows(),needed-s.getMaxRows());var range=s.getRange(at,1,records.length,def.fields.length);range.setNumberFormat('@');range.setValues(rows_(key,records));}
 function rewrite_(db,key,records){if(!records.length)return;db.getSheetByName(SCHEMA_[key].sheet).getRange(2,1,records.length,SCHEMA_[key].fields.length).setValues(rows_(key,records));}
-function getData(){var email=authorize_();return lock_(function(){var db=db_();return {email:email,products:read_(db,'products'),sellers:read_(db,'sellers'),accounts:read_(db,'accounts'),sales:read_(db,'sales')};});}
+function getData(){var email=authorize_();return lock_(function(){var db=db_();return {email:email,role:REQUEST_ROLE_||'team',capabilities:{deleteSales:REQUEST_ROLE_==='admin'},apiVersion:3,products:read_(db,'products'),sellers:read_(db,'sellers'),accounts:read_(db,'accounts'),sales:read_(db,'sales').filter(function(r){return r.status!=='Eliminado';})};});}
 function text_(v,name,max){if(typeof v!=='string'||!v.trim()||v.length>max)throw new Error('Revisa '+name+'.');return v.trim();}
 function optional_(v,max){if(v===undefined||v==='')return '';return text_(v,'observaciones',max);}
 function date_(v){if(typeof v!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(v))throw new Error('Fecha inválida.');var d=new Date(v+'T12:00:00Z');if(isNaN(d)||d.toISOString().slice(0,10)!==v)throw new Error('Fecha inválida.');return v;}
@@ -65,21 +86,21 @@ function find_(records,id,name){var r=records.find(function(x){return x.id===id;
 function saveEntity(input){authorize_();return lock_(function(){if(!input||['products','sellers','accounts'].indexOf(input.kind)<0)throw new Error('Tipo inválido.');var db=db_(),list=read_(db,input.kind),name=text_(input.name,'nombre',150),id=input.id||Utilities.getUuid();if(list.some(function(r){return normalized_(r.name)===normalized_(name)&&r.id!==id;}))throw new Error('Este nombre ya existe.');var entry={id:id,name:name};if(input.kind==='products'){entry.unitPrice=number_(input.unitPrice,0,'valor unitario');entry.aliases=optional_(input.aliases,300);entry.note=optional_(input.note,300);}if(input.id){var at=list.findIndex(function(r){return r.id===id;});if(at<0)throw new Error('Registro no encontrado.');list[at]=entry;rewrite_(db,input.kind,list);}else append_(db,input.kind,[entry]);return {ok:true,id:id};});}
 function saveOrder(input){var email=authorize_();return lock_(function(){
  if(!input)throw new Error('Orden vacía.');var requestId=text_(input.requestId,'identificador',100),db=db_(),sales=read_(db,'sales');
- var prior=sales.filter(function(r){return r.requestId===requestId;});if(prior.length)return {ok:true,orderId:prior[0].orderId,replayed:true};
+ var prior=sales.filter(function(r){return r.requestId===requestId;});if(prior.some(function(r){return r.status==='Eliminado';}))throw new Error('Este registro fue eliminado por el administrador. Crea una nueva orden para registrarlo otra vez.');if(prior.length)return {ok:true,orderId:prior[0].orderId,replayed:true};
  var date=date_(input.date),reference=text_(input.reference,'referencia',100),status=status_(input.status),notes=optional_(input.notes,1000);
  var seller=find_(read_(db,'sellers'),input.sellerId,'vendedor'),account=find_(read_(db,'accounts'),input.accountId,'cuenta');
- if(sales.some(function(r){return r.accountId===account.id&&normalized_(r.reference)===normalized_(reference);}))throw new Error('Este pedido ya existe en esa cuenta. No se guardó una segunda copia.');
+ if(sales.some(function(r){return r.status!=='Eliminado'&&r.accountId===account.id&&normalized_(r.reference)===normalized_(reference);}))throw new Error('Este pedido ya existe en esa cuenta. No se guardó una segunda copia.');
  if(!Array.isArray(input.lines)||!input.lines.length||input.lines.length>50)throw new Error('La orden debe contener entre 1 y 50 líneas.');
  var products=read_(db,'products'),orderId=Utilities.getUuid(),now=new Date().toISOString();
  var records=input.lines.map(function(l){var p=find_(products,l.productId,'producto'),q=number_(l.quantity,1,'cantidad'),price=number_(l.unitPrice,0,'valor unitario'),total=q*price;if(q>1000000||!Number.isSafeInteger(total))throw new Error('Cantidad o total fuera de rango.');return {id:Utilities.getUuid(),orderId:orderId,requestId:requestId,date:date,reference:reference,sellerId:seller.id,sellerName:seller.name,accountId:account.id,accountName:account.name,productId:p.id,productName:p.name,quantity:q,unitPrice:price,total:total,status:status,notes:notes,createdAt:now,createdBy:email,updatedAt:now,updatedBy:email,version:1};});
  if(!Number.isSafeInteger(records.reduce(function(s,r){return s+r.total;},0)))throw new Error('Total fuera de rango.');append_(db,'sales',records);SpreadsheetApp.flush();return {ok:true,orderId:orderId};
  });}
-function updatePayment(input){var email=authorize_();return lock_(function(){var db=db_(),sales=read_(db,'sales'),row=find_(sales,input.id,'venta');if(row.version!==input.version)throw new Error('La venta cambió. Actualiza antes de editar.');var next=status_(input.status);if(row.settlementId&&next==='Cancelado')throw new Error('No se puede cancelar una venta ya rendida.');row.status=next;row.updatedAt=new Date().toISOString();row.updatedBy=email;row.version++;rewrite_(db,'sales',sales);return {ok:true};});}
+function updatePayment(input){var email=authorize_();return lock_(function(){var db=db_(),sales=read_(db,'sales'),row=find_(sales,input.id,'venta');if(row.status==='Eliminado')throw new Error('Esta venta fue eliminada.');if(row.version!==input.version)throw new Error('La venta cambió. Actualiza antes de editar.');var next=status_(input.status);if(row.settlementId&&next==='Cancelado')throw new Error('No se puede cancelar una venta ya rendida.');row.status=next;row.updatedAt=new Date().toISOString();row.updatedBy=email;row.version++;rewrite_(db,'sales',sales);return {ok:true};});}
 function settleSales(input){var email=authorize_();return lock_(function(){
  var db=db_(),sales=read_(db,'sales'),id=text_(input.requestId,'identificador',100),date=date_(input.date),notes=optional_(input.notes,1000);
  if(!Array.isArray(input.ids)||!input.ids.length||input.ids.length>2000||!Array.isArray(input.versions)||input.ids.length!==input.versions.length||new Set(input.ids).size!==input.ids.length)throw new Error('Selección inválida.');
  var prior=sales.filter(function(r){return r.settlementId===id;});if(prior.length){if(prior.length===input.ids.length&&prior.every(function(r){return input.ids.indexOf(r.id)>=0;}))return {ok:true,replayed:true};throw new Error('La identificación de rendición ya está en uso.');}
- var selected=input.ids.map(function(saleId,i){var r=find_(sales,saleId,'venta');if(r.version!==input.versions[i])throw new Error('Una venta cambió. Actualiza la selección.');if(r.settlementId)throw new Error('Una venta ya fue rendida.');if(r.status==='Cancelado')throw new Error('No se pueden rendir ventas canceladas.');return r;});
+ var selected=input.ids.map(function(saleId,i){var r=find_(sales,saleId,'venta');if(r.version!==input.versions[i])throw new Error('Una venta cambió. Actualiza la selección.');if(r.settlementId)throw new Error('Una venta ya fue rendida.');if(r.status==='Cancelado'||r.status==='Eliminado')throw new Error('No se pueden rendir ventas canceladas o eliminadas.');return r;});
  if(new Set(selected.map(function(r){return r.sellerId;})).size!==1)throw new Error('Selecciona ventas de una sola persona.');
  var now=new Date().toISOString();selected.forEach(function(r){r.settlementId=id;r.settlementDate=date;r.settlementNotes=notes;r.settledBy=email;r.version++;r.updatedAt=now;r.updatedBy=email;});rewrite_(db,'sales',sales);SpreadsheetApp.flush();return {ok:true,id:id};
  });}
