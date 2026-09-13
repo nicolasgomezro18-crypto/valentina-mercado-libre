@@ -1,9 +1,9 @@
 /** Valentina Mercado Libre. HTML + Google Sheets. Sin servicios pagos. */
 var SCHEMA_ = {
- products: {sheet:'ML_Productos',fields:['id','name','unitPrice','aliases','note']},
- sellers: {sheet:'ML_Vendedores',fields:['id','name']},
- accounts: {sheet:'ML_Cuentas',fields:['id','name']},
- sales: {sheet:'ML_Ventas',fields:['id','orderId','requestId','date','reference','sellerId','sellerName','accountId','accountName','productId','productName','quantity','unitPrice','total','status','notes','createdAt','createdBy','updatedAt','updatedBy','version','settlementId','settlementDate','settlementNotes','settledBy']}
+ products: {sheet:'ML_Productos',fields:['id','name','unitPrice','aliases','note'],headers:['Código del producto','Nombre del producto','Valor unitario neto (CLP)','Otros nombres','Observaciones']},
+ sellers: {sheet:'ML_Vendedores',fields:['id','name'],headers:['Código del vendedor','Nombre del vendedor']},
+ accounts: {sheet:'ML_Cuentas',fields:['id','name'],headers:['Código de la cuenta','Nombre de la cuenta']},
+ sales: {sheet:'ML_Ventas',fields:['id','orderId','requestId','date','reference','sellerId','sellerName','accountId','accountName','productId','productName','quantity','unitPrice','total','status','notes','createdAt','createdBy','updatedAt','updatedBy','version','settlementId','settlementDate','settlementNotes','settledBy'],headers:['Código de la venta','Código de la orden','Código de registro','Fecha de venta','Referencia del pedido','Código del vendedor','Nombre del vendedor','Código de la cuenta','Nombre de la cuenta','Código del producto','Nombre del producto','Cantidad','Valor unitario neto (CLP)','Valor total neto (CLP)','Estado de pago','Observaciones','Fecha de registro','Registrado por','Última actualización','Actualizado por','Versión','Código de rendición','Fecha de rendición','Observaciones de rendición','Rendido por']}
 };
 function doGet(){authorize_();return HtmlService.createHtmlOutputFromFile('Index').setTitle('Valentina · Mercado Libre').addMetaTag('viewport','width=device-width, initial-scale=1');}
 function authorize_(){
@@ -14,8 +14,10 @@ function authorize_(){
 }
 function db_(){var id=PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');if(!id)throw new Error('Falta la propiedad SPREADSHEET_ID.');return SpreadsheetApp.openById(id);}
 function lock_(fn){var lock=LockService.getScriptLock();lock.waitLock(30000);try{return fn();}finally{lock.releaseLock();}}
-function setup(){authorize_();return lock_(function(){var db=db_();Object.keys(SCHEMA_).forEach(function(k){var def=SCHEMA_[k],s=db.getSheetByName(def.sheet);if(!s)s=db.insertSheet(def.sheet);if(s.getLastRow()===0){s.getRange(1,1,1,def.fields.length).setValues([def.fields]);s.setFrozenRows(1);s.getRange(1,1,1,def.fields.length).setBackground('#eeeeee').setFontColor('#000000').setFontWeight('bold');s.autoResizeColumns(1,def.fields.length);}check_(s,def);});return {ok:true};});}
-function check_(s,def){if(!s)throw new Error('Falta '+def.sheet+'. Ejecuta setup.');var headers=s.getRange(1,1,1,def.fields.length).getValues()[0];if(JSON.stringify(headers)!==JSON.stringify(def.fields))throw new Error('Encabezados incompatibles en '+def.sheet+'. No se modificaron los datos.');}
+function setup(){authorize_();return lock_(function(){var db=db_();Object.keys(SCHEMA_).forEach(function(k){var def=SCHEMA_[k],s=db.getSheetByName(def.sheet);if(!s)s=db.insertSheet(def.sheet);if(s.getLastRow()===0){s.getRange(1,1,1,def.fields.length).setValues([def.headers]);s.setFrozenRows(1);s.getRange(1,1,1,def.fields.length).setBackground('#eeeeee').setFontColor('#000000').setFontWeight('bold');s.autoResizeColumns(1,def.fields.length);}check_(s,def);});return {ok:true};});}
+// Los encabezados visibles están en español; las claves internas conservan el contrato del HTML.
+// También se admiten los encabezados originales completos para hojas de la primera versión.
+function check_(s,def){if(!s)throw new Error('Falta '+def.sheet+'. Ejecuta setup.');var headers=s.getRange(1,1,1,def.fields.length).getValues()[0],actual=JSON.stringify(headers);if(actual!==JSON.stringify(def.headers)&&actual!==JSON.stringify(def.fields))throw new Error('Encabezados incompatibles en '+def.sheet+'. No se modificaron los datos.');}
 function read_(db,key){var def=SCHEMA_[key],s=db.getSheetByName(def.sheet);check_(s,def);if(s.getLastRow()<2)return [];return s.getRange(2,1,s.getLastRow()-1,def.fields.length).getValues().filter(function(r){return !!r[0];}).map(function(row){var o={};def.fields.forEach(function(f,i){o[f]=row[i] instanceof Date?Utilities.formatDate(row[i],'America/Santiago','yyyy-MM-dd'):row[i];});return o;});}
 function safe_(value){if(typeof value==='string'&&/^[\s]*[=+@-]/.test(value))return "'"+value;return value;}
 function rows_(key,records){return records.map(function(r){return SCHEMA_[key].fields.map(function(f){return safe_(r[f]===undefined?'':r[f]);});});}

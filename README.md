@@ -34,7 +34,9 @@ Cuando cambies el código, actualiza la implementación con una **nueva versión
 
 ## Datos
 
-El aplicativo usa cuatro pestañas: `ML_Ventas`, `ML_Productos`, `ML_Vendedores` y `ML_Cuentas`. Los encabezados son claves del sistema: no los renombres. Mantén los registros consecutivos y administra ventas desde el aplicativo; no ordenes una columna de forma aislada ni cambies IDs, versiones o totales manualmente.
+El aplicativo usa cuatro pestañas: `ML_Ventas`, `ML_Productos`, `ML_Vendedores` y `ML_Cuentas`. Sus encabezados visibles están en español: Fecha de venta, Referencia del pedido, Nombre del vendedor, Cantidad, Valor unitario neto (CLP), Valor total neto (CLP), Estado de pago, entre otros. El código relaciona estos nombres con sus claves internas; conserva los encabezados y el orden de las columnas. Mantén los registros consecutivos y administra ventas desde el aplicativo; no ordenes una columna de forma aislada ni cambies códigos, versiones o totales manualmente.
+
+Si copiaste la primera versión de `Code.gs`, reemplázala por la versión actual para reconocer los encabezados en español. Si ya implementaste la aplicación, publica una nueva versión de esa implementación. El HTML no necesita cambios para esta traducción.
 
 Cada línea de producto conserva el precio, producto, cuenta y vendedor de la venta original. Cambiar un precio del catálogo solo afecta propuestas para nuevas ventas. Dos líneas del mismo pedido comparten `orderId`. La referencia puede repetirse en cuentas distintas, pero no como una nueva orden dentro de la misma cuenta.
 
