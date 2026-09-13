@@ -97,7 +97,13 @@ if(typeof module!=='undefined')module.exports=SalesCore;
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Santiago'}).format(new Date());
  let data={products:[],sellers:[],accounts:[],sales:[]},connected=false,selection=new Set(),visible=[],entityKind='',entityId='',saleRequest='',settlementRequest='',settlementRows=[],busy=false,ocrBusy=false,ocrGeneration=0;
- function rpc(method,...args){return new Promise((resolve,reject)=>{if(!window.google?.script?.run)return reject(Error('Abre la aplicación desde Apps Script para guardar en Google Sheets.'));google.script.run.withSuccessHandler(resolve).withFailureHandler(e=>reject(Error(e.message||String(e))))[method](...args);});}
+ function rpc(method,...args){return new Promise((resolve,reject)=>{
+   if(!window.google?.script?.run)return reject(Error('Abre la aplicación desde Apps Script para guardar en Google Sheets.'));
+   // Limit the read-only connection check. Writes keep their existing retry semantics.
+   const timer=method==='getData'?setTimeout(()=>reject(Error('Google no respondió en 30 segundos. Vuelve a comprobar la conexión.')),30000):null;
+   const ok=value=>{clearTimeout(timer);resolve(value);},fail=e=>{clearTimeout(timer);reject(Error(e?.message||String(e)));};
+   try{google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[method](...args);}catch(e){fail(e);}
+ });}
  function toast(text){$('toast').textContent=text;$('toast').hidden=false;setTimeout(()=>$('toast').hidden=true,5500);}
  function options(items,selected='',placeholder='Selecciona…'){return `<option value="">${placeholder}</option>`+items.map(i=>`<option value="${esc(i.id)}" ${i.id===selected?'selected':''}>${esc(i.name)}</option>`).join('');}
  function replaceOptions(id,items,placeholder){const value=$(id).value;$(id).innerHTML=options(items,value,placeholder);}
@@ -122,10 +128,22 @@ if(typeof module!=='undefined')module.exports=SalesCore;
    $('settlementHistory').innerHTML=[...groups.values()].sort((a,b)=>b.date.localeCompare(a.date)).map(g=>`<div class="history-row"><div><b>${esc(g.seller)} · ${esc(g.date)}</b><small>${esc(g.id)} · ${g.count} líneas</small></div><strong>${money(g.total)} CLP</strong></div>`).join('')||'Todavía no hay rendiciones para esta persona y cuenta.';
  }
  async function refresh(){
-   $('refresh').disabled=true;$('retryConnection').disabled=true;
-   try{data=await rpc('getData');connected=true;$('connectionBanner').className='banner';$('connectionBanner').textContent='Conectado a Google Sheets · '+data.email;$('connectionDetails').textContent='Conexión activa. Las ventas, productos, personas y rendiciones se guardan en tu Google Sheets.';}
-   catch(e){connected=false;$('connectionBanner').className='banner error';$('connectionBanner').textContent=window.google?.script?.run?'No se pudo conectar: '+e.message:'Vista previa del HTML · No conectado a Google Sheets. Puedes revisar el formulario y la lectura de texto e imágenes; los datos aún no se guardan.';}
-   finally{catalog();render();$('refresh').disabled=false;$('retryConnection').disabled=false;$('saveSale').disabled=!connected;}
+   if($('retryConnection').disabled)return;
+   $('refresh').disabled=true;$('retryConnection').disabled=true;$('retryConnection').textContent='Comprobando…';$('saveSale').disabled=true;
+   $('connectionBanner').className='banner';$('connectionBanner').textContent='Comprobando conexión con Google Sheets…';$('connectionDetails').textContent='Consultando tu hoja. Esta comprobación puede tardar hasta 30 segundos.';
+   try{
+     const result=await rpc('getData');
+     if(!result||!['products','sellers','accounts','sales'].every(key=>Array.isArray(result[key])))throw Error('Google devolvió una respuesta incompleta. Revisa que la implementación use la última versión del script.');
+     data=result;catalog();render();connected=true;
+     $('connectionBanner').className='banner';$('connectionBanner').textContent='Conectado a Google Sheets · '+data.email;
+     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 1.1.`;
+   }
+   catch(e){connected=false;const message=window.google?.script?.run?'No se pudo conectar: '+e.message:'Vista previa del HTML · Abre el enlace de Google Apps Script terminado en /exec para conectar con tu hoja. Este archivo no guarda ventas.';$('connectionBanner').className='banner error';$('connectionBanner').textContent=message;$('connectionDetails').textContent=message;}
+   finally{
+     // Restore the connection controls even if data rendering itself fails.
+     $('refresh').disabled=false;$('retryConnection').disabled=false;$('retryConnection').textContent='Comprobar conexión';$('saveSale').disabled=!connected;
+     try{render();}catch(e){connected=false;$('saveSale').disabled=true;$('connectionBanner').className='banner error';$('connectionBanner').textContent='No se pudieron mostrar las ventas: '+e.message;}
+   }
  }
  function openSale(){if(busy)return;$('saleForm').reset();$('saleDate').value=today();$('saleLines').innerHTML='';$('saleError').textContent='';$('extractionWarnings').hidden=true;$('ocrStatus').textContent='Revisa los datos detectados antes de guardar.';saleRequest=crypto.randomUUID();addLine();$('saveSale').disabled=!connected;$('saleDialog').showModal();}
  function addLine(value={}){const el=document.createElement('div');el.className='sale-line';el.innerHTML=`<label>Producto<select class="product" required>${options(data.products,value.productId)}</select></label><label>Cantidad<input class="quantity" type="number" min="1" max="1000000" step="1" value="${esc(value.quantity??1)}" required></label><label>Valor unidad · CLP<input class="price" inputmode="numeric" placeholder="17.060" value="${esc(value.unitPrice??'')}" required></label><button type="button" class="remove-line" aria-label="Quitar producto">×</button>`;el.querySelector('.product').onchange=()=>{const p=data.products.find(p=>p.id===el.querySelector('.product').value);el.querySelector('.price').value=p?.unitPrice??'';updateTotal();};el.querySelector('.remove-line').onclick=()=>{if($('saleLines').children.length===1)return;el.remove();updateTotal();};el.oninput=updateTotal;$('saleLines').appendChild(el);updateTotal();}
