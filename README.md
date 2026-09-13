@@ -6,6 +6,8 @@ Aplicación HTML para registrar ventas y rendiciones, publicada en GitHub Pages 
 
 ## Uso
 
+El Dashboard presenta ventas netas, unidades, pagos, gráficos por mes, producto, vendedor y cuenta, y el estado de las rendiciones. Sus filtros de vendedor, cuenta y fechas son independientes de los de Movimientos. Los registros sin fecha no entran en un período filtrado y se señalan en el dashboard. Los registros sin referencia no se cuentan como órdenes identificadas. Las rendiciones históricas sin confirmación se muestran por separado.
+
 Ingresa tu nombre y el código de acceso compartido por la administradora. Registra ventas manualmente, pega texto o adjunta imágenes para extraer su texto con Tesseract.js. Revisa los datos antes de guardar. Filtra por vendedor, cuenta, fechas y pago; selecciona ventas de una sola persona para hacer una rendición.
 
 Los precios son netos, en pesos chilenos. Total = cantidad × valor unitario. No se descuentan nuevamente comisiones ni envíos. Todos los encabezados de la hoja están en español.
@@ -20,6 +22,6 @@ El código compartido permite a todo el equipo consultar y editar. Los nombres i
 
 ## Desarrollo y validación
 
-`node build.mjs` genera `index.html` y la copia `apps-script/Index.html`; el servidor solo entrega el puente, no usa esa copia. `node --test tests/*.test.cjs` prueba importes, validaciones, duplicados, concurrencia, rendiciones y autorización. Prueba de navegador con puente simulado comprobada; la conexión real requiere que la administradora actualice su implementación de Google.
+`node build.mjs` genera `index.html` y la copia `apps-script/Index.html`; el servidor solo entrega el puente, no usa esa copia. `node --test tests/*.test.cjs` prueba importes, validaciones, duplicados, concurrencia, rendiciones y autorización. Dashboard comprobado en computador y celular. Conexión real de lectura a Google Sheets verificada con la implementación actual. Las pruebas de escritura usan un servidor simulado para no crear ventas de prueba en la hoja.
 
 GitHub Pages, Sheets, Apps Script y Tesseract no requieren servicios de pago para esta implementación; están sujetos a los límites de sus proveedores. OCR necesita internet para descargar el lector y procesa las imágenes en el navegador.

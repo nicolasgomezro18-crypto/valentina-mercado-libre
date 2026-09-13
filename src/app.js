@@ -5,7 +5,7 @@
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Santiago'}).format(new Date());
  let data={products:[],sellers:[],accounts:[],sales:[]},connected=false,selection=new Set(),visible=[],entityKind='',entityId='',saleRequest='',settlementRequest='',settlementRows=[],busy=false,ocrBusy=false,ocrGeneration=0;
- const ENDPOINT='https://script.google.com/macros/s/AKfycbwuytcBHTjNVto3qWozXJibJgoxEcUxh5_OuPhtakQMEzJw-fopj3bUP4ATcbNSqsaHzQ/exec';
+ const ENDPOINT='https://script.google.com/macros/s/AKfycbwQA3SlGOccnN_1kX_kxkBr0h7tm-r8VUX2DXnv7KGTrU_FJLRCFprVjYnHlpP7DBom/exec';
  let access=null,bridge=null,bridgePromise=null,frame=null;
  const pending=new Map();
  function connectBridge(){
@@ -41,17 +41,18 @@
  function options(items,selected='',placeholder='Selecciona…'){return `<option value="">${placeholder}</option>`+items.map(i=>`<option value="${esc(i.id)}" ${i.id===selected?'selected':''}>${esc(i.name)}</option>`).join('');}
  function replaceOptions(id,items,placeholder){const value=$(id).value;$(id).innerHTML=options(items,value,placeholder);}
  function catalog(){
-   replaceOptions('filterSeller',data.sellers,'Todos');replaceOptions('filterAccount',data.accounts,'Todas');
+   replaceOptions('dashSeller',data.sellers,'Todos');replaceOptions('dashAccount',data.accounts,'Todas');replaceOptions('filterSeller',data.sellers,'Todos');replaceOptions('filterAccount',data.accounts,'Todas');
    replaceOptions('saleSeller',data.sellers,'Selecciona…');replaceOptions('saleAccount',data.accounts,'Selecciona…');
    $('productGrid').innerHTML=data.products.length?data.products.map(p=>`<article class="product-card"><h3>${esc(p.name)}</h3><strong>${money(p.unitPrice)}</strong><p>Unidad neta · CLP</p><p>${esc(p.note||'')}</p><button data-edit-product="${esc(p.id)}">Editar producto</button></article>`).join(''):'<p>No hay productos. Agrega el primero.</p>';
    for(const [id,list]of [['sellerList',data.sellers],['accountList',data.accounts]])$(id).innerHTML=list.map(i=>`<li>${esc(i.name)}</li>`).join('')||'<li class="muted">Todavía no hay registros.</li>';
  }
  function filters(){return {seller:$('filterSeller').value,account:$('filterAccount').value,status:$('filterStatus').value,settlement:$('filterSettlement').value,from:$('filterFrom').value,to:$('filterTo').value,search:$('search').value};}
  function render(){
+   renderDashboard();
    const f=filters();visible=C.filter(data.sales,f).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt.localeCompare(a.createdAt));
-   const selectable=visible.filter(r=>!r.settlementId&&r.status!=='Cancelado');selection=new Set([...selection].filter(id=>selectable.some(r=>r.id===id)));
+   const selectable=visible.filter(r=>!r.settlementId&&!C.settlementReview(r)&&r.status!=='Cancelado');selection=new Set([...selection].filter(id=>selectable.some(r=>r.id===id)));
    const s=C.summarize(visible);$('metricTotal').textContent=money(s.total);$('metricPaid').textContent=money(s.paid);$('metricPending').textContent=money(s.pending);$('metricUnsettled').textContent=money(s.unsettled);$('metricOrders').textContent=`${s.orders} órdenes · ${s.units} unidades`;
-   $('salesBody').innerHTML=visible.map(r=>`<tr><td><input type="checkbox" data-select="${esc(r.id)}" aria-label="Seleccionar ${esc(r.reference)} ${esc(r.productName)}" ${selection.has(r.id)?'checked':''} ${r.settlementId||r.status==='Cancelado'?'disabled':''}></td><td>${esc(r.date.split('-').reverse().join('/'))}<small>#${esc(r.reference)}</small></td><td>${esc(r.productName)}</td><td>${esc(r.sellerName)}<small>${esc(r.accountName)}</small></td><td class="num">${r.quantity}</td><td class="num">${money(r.unitPrice)}</td><td class="num"><b>${money(r.total)}</b></td><td><select data-status="${esc(r.id)}" aria-label="Estado de pago ${esc(r.reference)}" ${!connected?'disabled':''}>${['Pendiente','Pagado','Cancelado'].map(x=>`<option ${r.status===x?'selected':''}>${x}</option>`).join('')}</select></td><td>${r.settlementId?`<span class="status done">Rendida</span><small>${esc(r.settlementDate)}</small>`:'<span class="status">Sin rendir</span>'}</td></tr>`).join('');
+   $('salesBody').innerHTML=visible.map(r=>`<tr><td><input type="checkbox" data-select="${esc(r.id)}" aria-label="Seleccionar ${esc(r.reference)} ${esc(r.productName)}" ${selection.has(r.id)?'checked':''} ${r.settlementId||C.settlementReview(r)||r.status==='Cancelado'?'disabled':''}></td><td>${C.validDate(r.date)?esc(r.date.split('-').reverse().join('/')):'Fecha por confirmar'}<small>${r.reference?'#'+esc(r.reference):'Sin referencia'}</small></td><td>${esc(r.productName)}</td><td>${esc(r.sellerName)}<small>${esc(r.accountName)}</small></td><td class="num">${r.quantity}</td><td class="num">${money(r.unitPrice)}</td><td class="num"><b>${money(r.total)}</b></td><td><select data-status="${esc(r.id)}" aria-label="Estado de pago ${esc(r.reference)}" ${!connected?'disabled':''}>${['Pendiente','Pagado','Cancelado'].map(x=>`<option ${r.status===x?'selected':''}>${x}</option>`).join('')}</select></td><td>${r.settlementId?`<span class="status done">Rendida</span><small>${esc(r.settlementDate)}</small>`:C.settlementReview(r)?'<span class="status">Por confirmar</span>':'<span class="status">Sin rendir</span>'}</td></tr>`).join('');
    $('emptyState').hidden=visible.length>0;$('emptyState').querySelector('h3').textContent=data.sales.length?'No hay ventas con estos filtros':'Aquí empieza tu control de ventas';
    $('rowCount').textContent=`${visible.length} líneas de producto · Los importes excluyen ventas canceladas.${f.from&&f.to&&f.from>f.to?' El rango de fechas está invertido.':''}`;
    const chosen=selectable.filter(r=>selection.has(r.id));$('selectionSummary').textContent=chosen.length?`${chosen.length} líneas seleccionadas · ${money(chosen.reduce((s,r)=>s+r.total,0))} CLP`:'Selecciona ventas para rendir.';
@@ -59,6 +60,21 @@
    $('settle').disabled=!connected||!chosen.length;$('exportCsv').disabled=!visible.length;
    const groups=new Map();for(const r of C.filter(data.sales,{seller:f.seller,account:f.account})){if(!r.settlementId)continue;const g=groups.get(r.settlementId)||{id:r.settlementId,date:r.settlementDate,seller:r.sellerName,count:0,total:0};g.count++;g.total+=r.total;groups.set(g.id,g);}
    $('settlementHistory').innerHTML=[...groups.values()].sort((a,b)=>b.date.localeCompare(a.date)).map(g=>`<div class="history-row"><div><b>${esc(g.seller)} · ${esc(g.date)}</b><small>${esc(g.id)} · ${g.count} líneas</small></div><strong>${money(g.total)} CLP</strong></div>`).join('')||'Todavía no hay rendiciones para esta persona y cuenta.';
+ }
+ function bars(id,items,unitDetails=true){
+  const max=Math.max(1,...items.map(x=>x.total));
+  $(id).innerHTML=items.length?items.map(x=>`<div class="chart-row"><div class="chart-label"><span>${esc(x.label)}</span><b>${money(x.total)}</b></div><div class="bar-track" aria-hidden="true"><div style="width:${100*x.total/max}%"></div></div>${unitDetails?`<small>${x.units} unidades</small>`:''}</div>`).join(''):'<p class="chart-empty">No hay ventas para estos filtros.</p>';
+ }
+ function renderDashboard(){
+  const f={seller:$('dashSeller').value,account:$('dashAccount').value,from:$('dashFrom').value,to:$('dashTo').value},d=C.dashboard(data.sales,f);
+  $('dashTotal').textContent=money(d.total);$('dashUnits').textContent=d.units;$('dashPaid').textContent=money(d.paid);$('dashPending').textContent=money(d.pending);
+  $('dashOrders').textContent=`${d.orders} órdenes con referencia${d.missingReferences?' · '+d.missingReferences+' líneas sin referencia':''}`;$('dashLines').textContent=d.rows+' líneas de producto';
+  bars('dashProducts',d.products);bars('dashSellers',d.sellers);bars('dashAccounts',d.accounts);
+  bars('dashMonths',d.months.map(x=>({...x,label:new Intl.DateTimeFormat('es-CL',{month:'long',year:'numeric',timeZone:'UTC'}).format(new Date(x.label+'-01T12:00:00Z'))})));
+  bars('dashSettlements',[{label:'Rendidas',total:d.settled},{label:'Sin rendir',total:d.unsettled},{label:'Por confirmar del Excel',total:d.settlementReview}],false);
+  const notes=[];if(f.from&&f.to&&f.from>f.to)notes.push('La fecha inicial es posterior a la final.');if(d.missingDates)notes.push(`${d.missingDates} ventas tienen fecha por confirmar; su importe sí está incluido en el total.`);if(d.missingReferences)notes.push(`${d.missingReferences} líneas no tienen referencia y no se cuentan como órdenes identificadas.`);if(f.from||f.to){const missing=C.dashboard(data.sales,{seller:f.seller,account:f.account}).missingDates;if(missing)notes.push(`${missing} ventas sin fecha quedan fuera del período seleccionado.`);}
+  $('dashNotice').hidden=!notes.length;$('dashNotice').textContent=notes.join(' ');
+  $('dashReviewPanel').hidden=!d.review.length;$('dashReview').innerHTML=d.review.map(r=>`<tr><td>${esc(r.productName)}<small>${esc(r.reference||'Sin referencia')}</small></td><td>${esc(r.sellerName)}</td><td>${esc(r.notes)}${C.settlementReview(r)?'<p>Rendición por confirmar.</p>':''}</td></tr>`).join('');
  }
  async function refresh(){
    if($('retryConnection').disabled)return;
@@ -69,7 +85,7 @@
      if(!result||!['products','sellers','accounts','sales'].every(key=>Array.isArray(result[key])))throw Error('Google devolvió una respuesta incompleta. Revisa que la implementación use la última versión del script.');
      data=result;catalog();render();connected=true;$('accessDialog').close();
      $('connectionBanner').className='banner';$('connectionBanner').textContent='Conectado a Google Sheets · '+data.email;
-     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 2.0.`;
+     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 2.1.`;
    }
    catch(e){connected=false;const message=e.message;$('accessError').textContent=message;$('connectionBanner').className='banner error';$('connectionBanner').textContent=message;$('connectionDetails').textContent=message;}
    finally{
@@ -106,10 +122,10 @@
  document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>{document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n===b));document.querySelectorAll('.view').forEach(v=>v.hidden=v.id!==b.dataset.view);$('pageTitle').textContent=b.textContent;});
  document.querySelectorAll('dialog .close').forEach(b=>b.onclick=()=>{if(busy)return;ocrGeneration++;b.closest('dialog').close();});document.querySelectorAll('dialog').forEach(d=>d.addEventListener('cancel',e=>{if(busy)e.preventDefault();else ocrGeneration++;}));
  $('newSale').onclick=openSale;$('emptyNew').onclick=openSale;$('saleForm').onsubmit=saveSale;$('addLine').onclick=()=>addLine();$('parseText').onclick=parse;$('images').onchange=readImages;
- $('refresh').onclick=refresh;$('retryConnection').onclick=refresh;
+ $('dashRefresh').onclick=refresh;for(const id of ['dashSeller','dashAccount','dashFrom','dashTo'])$(id).addEventListener('input',renderDashboard);$('dashClear').onclick=()=>{for(const id of ['dashSeller','dashAccount','dashFrom','dashTo'])$(id).value='';renderDashboard();};$('refresh').onclick=refresh;$('retryConnection').onclick=refresh;
  for(const id of ['filterSeller','filterAccount','filterStatus','filterSettlement','filterFrom','filterTo','search'])$(id).addEventListener('input',()=>{selection.clear();render();});
  $('clearFilters').onclick=()=>{for(const id of ['filterSeller','filterAccount','filterStatus','filterSettlement','filterFrom','filterTo','search'])$(id).value='';selection.clear();render();};
- $('selectAll').onchange=e=>{selection=e.target.checked?new Set(visible.filter(r=>!r.settlementId&&r.status!=='Cancelado').map(r=>r.id)):new Set();render();};
+ $('selectAll').onchange=e=>{selection=e.target.checked?new Set(visible.filter(r=>!r.settlementId&&!C.settlementReview(r)&&r.status!=='Cancelado').map(r=>r.id)):new Set();render();};
  $('salesBody').onchange=async e=>{const id=e.target.dataset.select;if(id){e.target.checked?selection.add(id):selection.delete(id);render();return;}const saleId=e.target.dataset.status;if(saleId){const row=data.sales.find(r=>r.id===saleId);e.target.disabled=true;try{await rpc('updatePayment',{id:saleId,status:e.target.value,version:row.version});await refresh();toast('Estado de pago actualizado.');}catch(err){toast(err.message);render();}}};
  $('exportCsv').onclick=exportCSV;$('settle').onclick=openSettlement;$('settleForm').onsubmit=saveSettlement;
  $('addProduct').onclick=()=>openEntity('products');$('addSeller').onclick=()=>openEntity('sellers');$('addAccount').onclick=()=>openEntity('accounts');$('entityForm').onsubmit=saveEntity;$('productGrid').onclick=e=>{const id=e.target.dataset.editProduct;if(id)openEntity('products',id);};

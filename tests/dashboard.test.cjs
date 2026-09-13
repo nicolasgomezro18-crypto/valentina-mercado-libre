@@ -1,0 +1,7 @@
+const test=require('node:test'),assert=require('node:assert/strict'),C=require('../src/core.js');
+test('dashboard reconciles product, seller and month totals and preserves unknown dates and references',()=>{
+ const rows=[{orderId:'a',reference:'001',date:'2026-08-01',sellerId:'s',sellerName:'Valen',accountId:'a',accountName:'Valen',productName:'A',quantity:2,total:200,status:'Pendiente',settlementId:'r'}, {orderId:'b',reference:'',date:'',sellerId:'t',sellerName:'Tía',accountId:'b',accountName:'Tía',productName:'B',quantity:1,total:50,status:'Pagado',settlementNotes:'Estado de rendición no confirmado en la importación.'}, {orderId:'c',reference:'003',date:'2026-08-02',sellerId:'s',sellerName:'Valen',accountId:'a',accountName:'Valen',productName:'A',quantity:1,total:999,status:'Cancelado'}];
+ const d=C.dashboard(rows);assert.equal(d.total,250);assert.equal(d.orders,1);assert.equal(d.units,3);assert.equal(d.missingDates,1);assert.equal(d.missingReferences,1);assert.equal(d.months[0].total,200);assert.equal(d.settled,200);assert.equal(d.settlementReview,50);assert.equal(d.unsettled,0);assert.equal(d.products.reduce((s,r)=>s+r.total,0),d.total);assert.equal(d.sellers.reduce((s,r)=>s+r.total,0),d.total);
+ assert.equal(C.dashboard(rows,{seller:'s'}).total,200);assert.equal(C.dashboard(rows,{to:'2026-08-31'}).total,200);assert.equal(C.dashboard(rows,{from:'2026-09-01',to:'2026-08-01'}).total,0);
+ assert.equal(C.filter(rows,{settlement:'no'}).some(C.settlementReview),false);assert.equal(C.filter(rows,{settlement:'review'}).length,1);
+});
