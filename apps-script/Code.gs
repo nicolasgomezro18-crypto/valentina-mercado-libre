@@ -5,11 +5,42 @@ var SCHEMA_ = {
  accounts: {sheet:'ML_Cuentas',fields:['id','name'],headers:['Código de la cuenta','Nombre de la cuenta']},
  sales: {sheet:'ML_Ventas',fields:['id','orderId','requestId','date','reference','sellerId','sellerName','accountId','accountName','productId','productName','quantity','unitPrice','total','status','notes','createdAt','createdBy','updatedAt','updatedBy','version','settlementId','settlementDate','settlementNotes','settledBy'],headers:['Código de la venta','Código de la orden','Código de registro','Fecha de venta','Referencia del pedido','Código del vendedor','Nombre del vendedor','Código de la cuenta','Nombre de la cuenta','Código del producto','Nombre del producto','Cantidad','Valor unitario neto (CLP)','Valor total neto (CLP)','Estado de pago','Observaciones','Fecha de registro','Registrado por','Última actualización','Actualizado por','Versión','Código de rendición','Fecha de rendición','Observaciones de rendición','Rendido por']}
 };
-function doGet(){authorize_();return HtmlService.createHtmlOutputFromFile('Index').setTitle('Valentina · Mercado Libre').addMetaTag('viewport','width=device-width, initial-scale=1');}
+// El sitio público contiene únicamente la interfaz. Cada operación requiere el código del equipo.
+var REQUEST_ACTOR_ = null;
+var APP_ORIGIN_ = 'https://nicolasgomezro18-crypto.github.io';
+function doGet(e){
+ var channel=String(e && e.parameter && e.parameter.channel || '');
+ if(!/^[a-zA-Z0-9-]{20,80}$/.test(channel))return HtmlService.createHtmlOutput('Abre el sistema desde GitHub: https://nicolasgomezro18-crypto.github.io/valentina-mercado-libre/');
+ var html='<script>('+bridgeClient_.toString()+')('+JSON.stringify(APP_ORIGIN_)+','+JSON.stringify(channel)+');</script>';
+ return HtmlService.createHtmlOutput(html).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+function bridgeClient_(origin,channel){
+ window.addEventListener('message',function(e){
+  if(e.origin!==origin||e.source!==window.top||!e.data||e.data.channel!==channel||e.data.type!=='request')return;
+  var id=e.data.id;
+  function send(result){window.top.postMessage(Object.assign({channel:channel,id:id,type:'response'},result),origin);}
+  google.script.run.withSuccessHandler(function(value){send({value:value});}).withFailureHandler(function(err){send({error:err.message||'No se pudo completar la operación.'});}).apiRequest(e.data.request);
+ });
+ window.top.postMessage({type:'ready',channel:channel},origin);
+}
+function apiRequest(request){
+ if(!request||JSON.stringify(request).length>250000)throw new Error('Solicitud inválida.');
+ var expected=PropertiesService.getScriptProperties().getProperty('TEAM_KEY_SHA256')||'';
+ var key=typeof request.key==='string'?request.key:'';
+ if(!/^[a-f0-9]{64}$/.test(expected)||key.length<20||key.length>200)throw new Error('Código de acceso incorrecto.');
+ var digest=Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,key,Utilities.Charset.UTF_8).map(function(b){return ('0'+((b+256)%256).toString(16)).slice(-2);}).join('');
+ var diff=0;for(var i=0;i<64;i++)diff|=digest.charCodeAt(i)^expected.charCodeAt(i);
+ if(diff)throw new Error('Código de acceso incorrecto.');
+ var methods={getData:getData,saveOrder:saveOrder,saveEntity:saveEntity,updatePayment:updatePayment,settleSales:settleSales};
+ if(!Object.prototype.hasOwnProperty.call(methods,request.method))throw new Error('Operación no permitida.');
+ REQUEST_ACTOR_=text_(request.actor,'tu nombre',100);
+ try{return methods[request.method](request.input);}finally{REQUEST_ACTOR_=null;}
+}
 function authorize_(){
+ if(REQUEST_ACTOR_)return REQUEST_ACTOR_;
  var email=Session.getActiveUser().getEmail().toLowerCase();
  var allowed=(PropertiesService.getScriptProperties().getProperty('ALLOWED_EMAILS')||'').split(',').map(function(x){return x.trim().toLowerCase();}).filter(Boolean);
- if(!email||allowed.indexOf(email)<0)throw new Error('Acceso no autorizado. Configura ALLOWED_EMAILS y ejecuta la app como el usuario que accede.');
+ if(!email||allowed.indexOf(email)<0)throw new Error('Acceso no autorizado. Entra desde el sitio de GitHub con el código del equipo.');
  return email;
 }
 function db_(){var id=PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');if(!id)throw new Error('Falta la propiedad SPREADSHEET_ID.');return SpreadsheetApp.openById(id);}

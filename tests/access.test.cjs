@@ -1,0 +1,20 @@
+const test=require('node:test'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const {fixture}=require('./backend-fixture.cjs');
+test('team access validates secret, whitelists operations and clears actor after success and failure',()=>{
+ const f=fixture(),key='test-only-access-code-with-entropy',hash=crypto.createHash('sha256').update(key).digest('hex');
+ f.ctx.PropertiesService={getScriptProperties:()=>({getProperty:k=>({TEAM_KEY_SHA256:hash,SPREADSHEET_ID:'test',ALLOWED_EMAILS:'test@example.com'}[k])})};
+ Object.assign(f.ctx.Utilities,{DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(_,s)=>[...crypto.createHash('sha256').update(s).digest()]});
+ f.setEmail('');
+ assert.throws(()=>f.ctx.getData(),/no autorizado/);
+ const request={key,actor:'Valentina',method:'getData'};
+ assert.throws(()=>f.ctx.apiRequest({...request,key:'invalid-access-code-1234'}),/incorrecto/);
+ assert.throws(()=>f.ctx.apiRequest({...request,method:'setup'}),/no permitida/);
+ assert.throws(()=>f.ctx.apiRequest({...request,method:'toString'}),/no permitida/);
+ assert.equal(f.ctx.apiRequest(request).email,'Valentina');
+ assert.equal(f.ctx.REQUEST_ACTOR_,null);
+ const order=f.order();f.ctx.apiRequest({...request,method:'saveOrder',input:order});
+ assert.equal(f.ctx.apiRequest(request).sales[0].createdBy,'Valentina');
+ assert.throws(()=>f.ctx.apiRequest({...request,method:'saveOrder',input:null}));
+ assert.equal(f.ctx.REQUEST_ACTOR_,null);
+ assert.throws(()=>f.ctx.getData(),/no autorizado/);
+});

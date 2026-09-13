@@ -5,13 +5,38 @@
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Santiago'}).format(new Date());
  let data={products:[],sellers:[],accounts:[],sales:[]},connected=false,selection=new Set(),visible=[],entityKind='',entityId='',saleRequest='',settlementRequest='',settlementRows=[],busy=false,ocrBusy=false,ocrGeneration=0;
- function rpc(method,...args){return new Promise((resolve,reject)=>{
-   if(!window.google?.script?.run)return reject(Error('Abre la aplicación desde Apps Script para guardar en Google Sheets.'));
-   // Limit the read-only connection check. Writes keep their existing retry semantics.
-   const timer=method==='getData'?setTimeout(()=>reject(Error('Google no respondió en 30 segundos. Vuelve a comprobar la conexión.')),30000):null;
-   const ok=value=>{clearTimeout(timer);resolve(value);},fail=e=>{clearTimeout(timer);reject(Error(e?.message||String(e)));};
-   try{google.script.run.withSuccessHandler(ok).withFailureHandler(fail)[method](...args);}catch(e){fail(e);}
- });}
+ const ENDPOINT='https://script.google.com/macros/s/AKfycbwuytcBHTjNVto3qWozXJibJgoxEcUxh5_OuPhtakQMEzJw-fopj3bUP4ATcbNSqsaHzQ/exec';
+ let access=null,bridge=null,bridgePromise=null,frame=null;
+ const pending=new Map();
+ function connectBridge(){
+  if(bridge)return Promise.resolve(bridge);
+  if(bridgePromise)return bridgePromise;
+  bridgePromise=new Promise((resolve,reject)=>{
+   const channel=crypto.randomUUID();
+   const timeout=setTimeout(()=>{window.removeEventListener('message',ready);frame?.remove();bridgePromise=null;reject(Error('La conexión necesita activarse una vez por la administradora. No tienes que iniciar sesión en Google.'));},30000);
+   function ready(e){
+    if(!/^https:\/\/[a-z0-9-]+(?:-script)?\.googleusercontent\.com$/.test(e.origin)||e.data?.type!=='ready'||e.data.channel!==channel)return;
+    clearTimeout(timeout);window.removeEventListener('message',ready);bridge={source:e.source,origin:e.origin,channel};resolve(bridge);
+   }
+   window.addEventListener('message',ready);
+   frame=document.createElement('iframe');frame.hidden=true;frame.title='Conexión segura con la hoja';frame.src=ENDPOINT+'?channel='+encodeURIComponent(channel);document.body.appendChild(frame);
+  });return bridgePromise;
+ }
+ window.addEventListener('message',e=>{
+  if(!bridge||e.source!==bridge.source||e.origin!==bridge.origin||e.data?.channel!==bridge.channel||e.data.type!=='response')return;
+  const entry=pending.get(e.data.id);if(!entry)return;pending.delete(e.data.id);clearTimeout(entry.timer);
+  e.data.error?entry.reject(Error(e.data.error)):entry.resolve(e.data.value);
+ });
+ async function rpc(method,input){
+  if(!access)throw Error('Ingresa tu nombre y el código de acceso.');
+  const connection=await connectBridge();
+  return new Promise((resolve,reject)=>{
+   const id=crypto.randomUUID();
+   const timer=setTimeout(()=>{pending.delete(id);reject(Error(method==='getData'?'La hoja tardó demasiado en responder. Pulsa Entrar de nuevo.':'No llegó la confirmación. Actualiza las ventas antes de volver a guardar.'));},45000);
+   pending.set(id,{resolve,reject,timer});
+   connection.source.postMessage({type:'request',channel:connection.channel,id,request:{method,input,actor:access.actor,key:access.key}},connection.origin);
+  });
+ }
  function toast(text){$('toast').textContent=text;$('toast').hidden=false;setTimeout(()=>$('toast').hidden=true,5500);}
  function options(items,selected='',placeholder='Selecciona…'){return `<option value="">${placeholder}</option>`+items.map(i=>`<option value="${esc(i.id)}" ${i.id===selected?'selected':''}>${esc(i.name)}</option>`).join('');}
  function replaceOptions(id,items,placeholder){const value=$(id).value;$(id).innerHTML=options(items,value,placeholder);}
@@ -42,11 +67,11 @@
    try{
      const result=await rpc('getData');
      if(!result||!['products','sellers','accounts','sales'].every(key=>Array.isArray(result[key])))throw Error('Google devolvió una respuesta incompleta. Revisa que la implementación use la última versión del script.');
-     data=result;catalog();render();connected=true;
+     data=result;catalog();render();connected=true;$('accessDialog').close();
      $('connectionBanner').className='banner';$('connectionBanner').textContent='Conectado a Google Sheets · '+data.email;
-     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 1.1.`;
+     $('connectionDetails').textContent=`Conexión comprobada a las ${new Date().toLocaleTimeString('es-CL')}. ${data.products.length} productos y ${data.sales.length} líneas de venta. Versión 2.0.`;
    }
-   catch(e){connected=false;const message=window.google?.script?.run?'No se pudo conectar: '+e.message:'Vista previa del HTML · Abre el enlace de Google Apps Script terminado en /exec para conectar con tu hoja. Este archivo no guarda ventas.';$('connectionBanner').className='banner error';$('connectionBanner').textContent=message;$('connectionDetails').textContent=message;}
+   catch(e){connected=false;const message=e.message;$('accessError').textContent=message;$('connectionBanner').className='banner error';$('connectionBanner').textContent=message;$('connectionDetails').textContent=message;}
    finally{
      // Restore the connection controls even if data rendering itself fails.
      $('refresh').disabled=false;$('retryConnection').disabled=false;$('retryConnection').textContent='Comprobar conexión';$('saveSale').disabled=!connected;
@@ -88,5 +113,9 @@
  $('salesBody').onchange=async e=>{const id=e.target.dataset.select;if(id){e.target.checked?selection.add(id):selection.delete(id);render();return;}const saleId=e.target.dataset.status;if(saleId){const row=data.sales.find(r=>r.id===saleId);e.target.disabled=true;try{await rpc('updatePayment',{id:saleId,status:e.target.value,version:row.version});await refresh();toast('Estado de pago actualizado.');}catch(err){toast(err.message);render();}}};
  $('exportCsv').onclick=exportCSV;$('settle').onclick=openSettlement;$('settleForm').onsubmit=saveSettlement;
  $('addProduct').onclick=()=>openEntity('products');$('addSeller').onclick=()=>openEntity('sellers');$('addAccount').onclick=()=>openEntity('accounts');$('entityForm').onsubmit=saveEntity;$('productGrid').onclick=e=>{const id=e.target.dataset.editProduct;if(id)openEntity('products',id);};
- refresh();
+ $('accessForm').onsubmit=async e=>{e.preventDefault();const button=$('enterApp');button.disabled=true;$('accessError').textContent='Conectando…';access={actor:$('accessName').value.trim(),key:$('accessKey').value.trim()};try{await refresh();}finally{button.disabled=false;}};
+ $('accessDialog').addEventListener('cancel',e=>e.preventDefault());
+ $('signOut').onclick=()=>location.reload();
+ $('connectionBanner').textContent='Ingresa para consultar y registrar tus ventas.';
+ $('accessDialog').showModal();
 })();
